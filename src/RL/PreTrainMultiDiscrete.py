@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import os
 from gym import spaces
 from math import exp, floor, ceil
+from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from gym.spaces import Box
 
 class ExpertDataSet(Dataset):
@@ -19,7 +20,7 @@ class ExpertDataSet(Dataset):
         # self.keys = list(expert_observations.keys())
     # Returns a Sequence
     def __getitem__(self, index):
-        return {'music': self.observations['music'][index], 'joint_angles':self.observations['joint_angles'][index], 'previous_actions': self.observations['previous_actions'][index], 'actions': self.observations['actions'][index]}
+        return ({'music': self.observations['music'][index], 'joint_angles':self.observations['joint_angles'][index], 'previous_actions': self.observations['previous_actions'][index], 'actions': self.observations['actions'][index]}, self.observations['actions'][index])
 
     def __len__(self): # Returns Num of Sequences
         return len(self.observations['music'])
@@ -97,13 +98,17 @@ def pretrain_agent(
           total_loss = None
           optimizer.zero_grad()
           
-          for _s in sequence:
-            observation, action = {'music': _s['music'], 'joint_angles': _s['joint_angles'], 'previous_actions': _s['previous_actions']}, _s['actions']
+          lstm_states = RNNStates(th.zeros(model.lstm_hidden_state_shape), th.zeros(model.lstm_hidden_state_shape))
+          episode_starts = []
+          for seq_idx, _s in enumerate(sequence):
+                
+            observation, action = {'music': _s['music'][seq_idx].unsqueeze(0) , 'joint_angles': _s['joint_angles'][seq_idx], 'previous_actions': _s['previous_actions'][seq_idx].unsqueeze(0) }, _s['actions'][seq_idx]
             action = action.to(device)
             for k,v in observation.items():
                 observation[k] = v.to(device)
-
-            dist = model.get_distribution(observation)
+            episode_starts.append(0)
+            output, lstm_states = model.forward(observation, lstm_states, th.tensor(episode_starts))
+            dist = model.get_distribution(observation, lstm_states = lstm_states, episode_starts = th.tensor(episode_starts))
             action_prediction = [i.logits for i in dist.distribution]
     #   action_prediction = [i.probs for i in dist.distribution]
             action = action.long()
@@ -113,7 +118,8 @@ def pretrain_agent(
                   loss = criterion(action_prediction[i], action[i]) if loss is None else loss + criterion(action_prediction[i], action[i])
 
             total_loss = loss if total_loss is None else total_loss + loss
-          
+          episode_starts.append(1)
+          output, lstm_states = model.forward(observation, lstm_states[-1])
           total_loss.backward()
           optimizer.step()
     if sequence_idx % log_interval == 0:

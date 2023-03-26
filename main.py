@@ -151,7 +151,7 @@ def main():
     global commands
     # Train(num_steps=1000, detailed_training=True)
     # convert_splice_to_expert()
-    PreTrain()
+    Train()
 
 
 if __name__ == '__main__':
