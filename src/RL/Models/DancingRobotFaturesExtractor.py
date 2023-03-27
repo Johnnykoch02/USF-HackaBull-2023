@@ -13,7 +13,7 @@ class DancingRobotFeaturesExtractor(BaseFeaturesExtractor):
                     extractors[key] = nn.Sequential(
                         nn.Linear(17, 120),
                         nn.LeakyReLU(),
-                        nn.BatchNorm1d(120),
+                        # nn.BatchNorm1d(120),
                         nn.Linear(120, 80),
                         nn.LeakyReLU(),
                     )
