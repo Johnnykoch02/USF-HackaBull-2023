@@ -6,6 +6,7 @@ import gym
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.nn.functional import one_hot
 import json
 import matplotlib.pyplot as plt
 import os
@@ -14,13 +15,16 @@ from math import exp, floor, ceil
 from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from gym.spaces import Box
 
-class ExpertDataSet(Dataset):
-    def __init__(self, expert_observations, expert_actions):
+class ExpertDataSet:
+    def __init__(self, expert_observations):
+        print('Shape Actions: ', np.shape(expert_observations['actions'][0]))
+        print('Shape Music: ', expert_observations['music'].shape)
+        
         self.observations = expert_observations # Song, Sequence x Index]
         # self.keys = list(expert_observations.keys())
     # Returns a Sequence
-    def __getitem__(self, index):
-        return ({'music': self.observations['music'][index], 'joint_angles':self.observations['joint_angles'][index], 'previous_actions': self.observations['previous_actions'][index], 'actions': self.observations['actions'][index]}, self.observations['actions'][index])
+    def __getitem__(self, sequence_num):
+        return {'music': th.tensor(self.observations['music'][sequence_num]), 'joint_angles': th.tensor(self.observations['joint_angles'][sequence_num]), 'previous_actions': th.tensor(self.observations['previous_actions'][sequence_num]), 'actions': th.tensor(self.observations['actions'][sequence_num])}
 
     def __len__(self): # Returns Num of Sequences
         return len(self.observations['music'])
@@ -32,13 +36,14 @@ def get_expert_data():
   actn_mtrx = np.load(os.path.join(FILE_PATH, 'actn_mtrx.npy'), allow_pickle = True)
   sound = np.load(os.path.join(FILE_PATH, 'sound.npy'), allow_pickle= True)  
   expert_actions= np.load(os.path.join(FILE_PATH, 'actions.npy'), allow_pickle = True)
+  print('Shape Actions: ', np.shape(expert_actions[0]))
   expert_observations = {
       'joint_angles': jnt_thetas,
       'previous_actions': actn_mtrx,
       'music': sound,
       'actions': expert_actions
     }
-  return ExpertDataSet(expert_observations, expert_actions)
+  return ExpertDataSet(expert_observations)
 
   # Only the 3 fingers
 
@@ -94,34 +99,38 @@ def pretrain_agent(
   def train(model, device, train_loader, optimizer):
     model.train()
 
-    for sequence_idx, sequence in enumerate(train_loader):
+    for sequence_idx in range(len(train_loader)):
           total_loss = None
+          sequence = train_loader[sequence_idx]
+          
           optimizer.zero_grad()
           
-          lstm_states = RNNStates(th.zeros(model.lstm_hidden_state_shape), th.zeros(model.lstm_hidden_state_shape))
+          lstm_states = (th.zeros(model.lstm_hidden_state_shape, device='cuda'), th.zeros(model.lstm_hidden_state_shape, device='cuda'))#, RNNStates(th.zeros(model.lstm_hidden_state_shape), th.zeros(model.lstm_hidden_state_shape))) # Batch Size x Features Dim x something... this code is not clear so I will have to investigate for future
           episode_starts = []
-          for seq_idx, _s in enumerate(sequence):
-                
-            observation, action = {'music': _s['music'][seq_idx].unsqueeze(0) , 'joint_angles': _s['joint_angles'][seq_idx], 'previous_actions': _s['previous_actions'][seq_idx].unsqueeze(0) }, _s['actions'][seq_idx]
-            action = action.to(device)
+          for seq_idx in range(sequence['actions'].shape[0]):
+            observation, action = {'music': sequence['music'][seq_idx].unsqueeze(0).unsqueeze(0)  , 'joint_angles': sequence['joint_angles'][seq_idx].unsqueeze(0), 'previous_actions': sequence['previous_actions'][seq_idx].unsqueeze(0).unsqueeze(0)}, sequence['actions'][seq_idx].unsqueeze(0)
             for k,v in observation.items():
                 observation[k] = v.to(device)
+            action = action.to(device)
             episode_starts.append(0)
-            output, lstm_states = model.forward(observation, lstm_states, th.tensor(episode_starts))
-            dist = model.get_distribution(observation, lstm_states = lstm_states, episode_starts = th.tensor(episode_starts))
-            action_prediction = [i.logits for i in dist.distribution]
+            dist, lstm_states = model.get_distribution(observation, lstm_states = lstm_states, episode_starts = th.tensor(episode_starts))
+            action_prediction = [th.nn.functional.normalize(i.probs) for i in dist.distribution]
+            target_one_hot = th.nn.functional.one_hot(action[0], num_classes=11).float()
     #   action_prediction = [i.probs for i in dist.distribution]
-            action = action.long()
+            # action = action.long()
             # CHANGE, might need target[] since we are going through each action in that batch
             loss = None
-            for i in range(len(action_prediction)):
-                  loss = criterion(action_prediction[i], action[i]) if loss is None else loss + criterion(action_prediction[i], action[i])
+            for i in range(len(action_prediction)): 
+              loss = criterion(action_prediction[i], target_one_hot[i].unsqueeze(0)) if loss is None else loss + criterion(action_prediction[i], target_one_hot[i].unsqueeze(0))
 
             total_loss = loss if total_loss is None else total_loss + loss
-          episode_starts.append(1)
-          output, lstm_states = model.forward(observation, lstm_states[-1])
+            print('Episodic Loss: ', loss.item())
+            
           total_loss.backward()
           optimizer.step()
+          print('Total Episodic Loss: ', total_loss.item())
+          
+          
     if sequence_idx % log_interval == 0:
       print('train epoch: {} Sequence: {} ({:.0f}%)]\t loss:{:.6f}'.format(epoch, sequence_idx, total_loss.item()))
 
@@ -177,7 +186,7 @@ def pretrain_agent(
     # test_loss /= len(test_loader.dataset)
     print(f'test set: average loss: {test_loss:.4f}')
 
-  train_loader = th.utils.data.DataLoader(dataset = get_expert_data(), batch_size = batch_size, shuffle = True, **kwargs)
+  train_loader = get_expert_data()
   # test_loader = th.utils.data.DataLoader(dataset = test_expert_dataset, batch_size = batch_size, shuffle = True, **kwargs)
   # val_loader = th.utils.data.DataLoader(dataset = val_expert_dataset, batch_size = batch_size, shuffle = True, **kwargs)
 

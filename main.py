@@ -37,7 +37,7 @@ def lr_call(step):
 
 policy_kwargs = dict(
     features_extractor_class=DancingRobotFeaturesExtractor,# pi: action, vf: value
-    # net_arch=[512, 126, dict(pi=[128,64], vf=[128,64])],
+    net_arch=[2672, dict(pi=[512,256], qf=[512, 256])],
     optimizer_class=th.optim.RMSprop, #Adam    
     optimizer_kwargs=dict(
         alpha=1.0,
@@ -134,9 +134,9 @@ def PreTrain(num_steps:int=100000, load_dir:str='', detailed_training=False):
             tensorboard_log=LOG_DIR)
         
         
-    pretrain_agent(model, epochs=2000, batch_size=1, patience=15)
+    pretrain_agent(model, epochs=2000, batch_size=1)
     # detected_bad_scenes = model.env.bad_scenes
-    model.save(os.path.join(os.path.join(os.getcwd(), CHECKPOINT_DIR, f'Pretrained_{NAME}.zip')))
+    model.save(os.path.join(os.path.join(CHECKPOINT_DIR, f'Pretrained_{NAME}.zip')))
     
     '''We can choose what to do with this in the future'''
     
@@ -151,7 +151,8 @@ def main():
     global commands
     # Train(num_steps=1000, detailed_training=True)
     # convert_splice_to_expert()
-    Train()
+    # Train()
+    PreTrain()
 
 
 if __name__ == '__main__':

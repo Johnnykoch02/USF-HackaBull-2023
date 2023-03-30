@@ -1,6 +1,5 @@
 #### USF HACKER PLAN FOR TEAM ####
 
-
 Hackathon we will be using a human pose estimation model on our collected data and well have to match the timing of the music and the sampling frequency for the song to the frequency of the collection of estimations.
 After that we are going to perform the Angle Overlay Algorithm which will get the appropriate angles between the joints and store those indicies in an array of shape (song index x num samples x num joints). We will then go through each song index in that file, take the current reading and compute the dTheta between that index and the previous index and save those values in a npy array of shape [ song index x num samples x num joints + num joint_dthetas (num joints + num joint_dthetas should be equal to 2 x num joints ).
 
