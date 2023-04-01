@@ -74,7 +74,10 @@ docs/_build/
 # PyBuilder
 target/
 
+# Data and Model Files
 *.npy
+*.zip
+*events.out.tfevents.*
 
 launch.json
 
@@ -131,4 +134,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-*events.out.tfevents.*
