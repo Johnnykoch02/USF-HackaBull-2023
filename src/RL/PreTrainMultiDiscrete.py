@@ -77,9 +77,9 @@ def get_accuracy(model, data, dtype):
 
 def pretrain_agent(
     student, 
-    batch_size = 1, 
+    batch_size = 64, 
     epochs = 1000, 
-    learning_rate = 1e-5, 
+    learning_rate = 3e-5, 
     log_interval = 5, 
     no_cuda = False, 
     seed = 1, 
@@ -107,6 +107,7 @@ def pretrain_agent(
           
           lstm_states = (th.zeros(model.lstm_hidden_state_shape, device='cuda'), th.zeros(model.lstm_hidden_state_shape, device='cuda'))#, RNNStates(th.zeros(model.lstm_hidden_state_shape), th.zeros(model.lstm_hidden_state_shape))) # Batch Size x Features Dim x something... this code is not clear so I will have to investigate for future
           episode_starts = []
+          train_idx = 0
           for seq_idx in range(sequence['actions'].shape[0]):
             observation, action = {'music': sequence['music'][seq_idx].unsqueeze(0).unsqueeze(0)  , 'joint_angles': sequence['joint_angles'][seq_idx].unsqueeze(0), 'previous_actions': sequence['previous_actions'][seq_idx].unsqueeze(0).unsqueeze(0)}, sequence['actions'][seq_idx].unsqueeze(0)
             for k,v in observation.items():
@@ -122,13 +123,23 @@ def pretrain_agent(
             loss = None
             for i in range(len(action_prediction)): 
               loss = criterion(action_prediction[i], target_one_hot[i].unsqueeze(0)) if loss is None else loss + criterion(action_prediction[i], target_one_hot[i].unsqueeze(0))
-
+            loss /= len(action_prediction)
             total_loss = loss if total_loss is None else total_loss + loss
             print('Episodic Loss: ', loss.item())
-            
-          total_loss.backward()
-          optimizer.step()
-          print('Total Episodic Loss: ', total_loss.item())
+            train_idx+=1
+            if train_idx % batch_size == 0:
+              total_loss/= batch_size
+              total_loss.backward()
+              total_loss = None
+              optimizer.step()
+              lstm_states = (lstm_states[0].clone().detach().to(device), lstm_states[1].clone().detach().to(device))
+              optimizer.zero_grad()
+              
+          if total_loss:  
+            total_loss /= (sequence['actions'].shape[0] % batch_size)
+            total_loss.backward()
+            optimizer.step()
+            print('Total Episodic Loss: ', total_loss.item())
           
           
     if sequence_idx % log_interval == 0:
@@ -191,12 +202,15 @@ def pretrain_agent(
   # val_loader = th.utils.data.DataLoader(dataset = val_expert_dataset, batch_size = batch_size, shuffle = True, **kwargs)
 
 
-  optimizer = optim.AdamW(model.parameters(), lr = learning_rate)
+  optimizer = optim.Adam(model.parameters(), lr = learning_rate,
+        eps=1e-5,
+        weight_decay=0,)
   # scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=patience-5, verbose=True)
 #   scheduler = StepLR(optimizer, step_size = 1, gamma = scheduler_gamma)
 
   # last_loss = 100
   # trigger_times = 0
+  print('Training...')
   for epoch in range(1, epochs+1):
     train(model, device, train_loader, optimizer)
   #   # cur_loss = validation(model, device, val_loader)

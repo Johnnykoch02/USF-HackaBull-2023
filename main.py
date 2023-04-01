@@ -38,9 +38,8 @@ def lr_call(step):
 policy_kwargs = dict(
     features_extractor_class=DancingRobotFeaturesExtractor,# pi: action, vf: value
     net_arch=[2672, dict(pi=[512,256], qf=[512, 256])],
-    optimizer_class=th.optim.RMSprop, #Adam    
+    optimizer_class=th.optim.Adam, #Adam    
     optimizer_kwargs=dict(
-        alpha=1.0,
         eps=1e-5,
         weight_decay=0,
     ),
@@ -133,8 +132,8 @@ def PreTrain(num_steps:int=100000, load_dir:str='', detailed_training=False):
             ent_coef = 0.001,
             tensorboard_log=LOG_DIR)
         
-        
-    pretrain_agent(model, epochs=2000, batch_size=1)
+        pretrain_agent(model)
+
     # detected_bad_scenes = model.env.bad_scenes
     model.save(os.path.join(os.path.join(CHECKPOINT_DIR, f'Pretrained_{NAME}.zip')))
     
